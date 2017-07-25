@@ -1,13 +1,11 @@
 import os
 import re
 
-import jinja2
-import mdpopups
-
 import sublime
 import sublime_plugin
 
 TEMPLATE = r'\b({0})(?:\((.+)\))?: (.+)$'
+EXTRACT_PAT = None
 EXTRACT_RE = None
 PREFS = None
 
@@ -15,11 +13,12 @@ PREFS = None
 def plugin_loaded():
     """Initialize the extraction regexp.
     """
-    global EXTRACT_RE, PREFS
+    global EXTRACT_RE, EXTRACT_PAT, PREFS
     # TODO: respect updates to settings
     settings = sublime.load_settings('TODOView.sublime-settings')
     PREFS = sublime.load_settings('Preferences.sublime-settings')
-    EXTRACT_RE = TEMPLATE.format('|'.join(settings.get('targets', [])))
+    EXTRACT_PAT = TEMPLATE.format('|'.join(settings.get('targets', [])))
+    EXTRACT_RE = re.compile(EXTRACT_PAT)
 
 
 def parse_query(query):
@@ -35,7 +34,9 @@ def parse_query(query):
         >>> parse_query('file:TODO:*')
         ['file', ['TODO'], ['*']]
     """
-    if not query.count(':') == 2:
+    if query == '':
+        return ['*', ['*'], ['*']]
+    elif not query.count(':') == 2:
         return []
     parts = query.split(':')
     categories = parts[1].split(',')
@@ -49,54 +50,6 @@ def format_message(msg):
     if not any(msg.endswith(c) for c in ('.', '?', '!')) and len(msg) > 30:
         msg = msg + ' ...'
     return msg
-
-
-def aggregate_views(scope):
-    """Find all of the views we should search.
-
-    Args:
-        scope (str): The scope of our search. Accepted values are '(f)ile' (the
-        view being edited), '(o)pen' (all open views), or '(a)ll' (all files
-        in the current window).
-
-    Returns:
-        [sublime.View|str]: A list of View objects (when available) and file
-        paths.
-    """
-    views = []
-    if scope in ('file', 'f'):
-        v = sublime.active_window().active_view()
-        if not ignore_path(v.file_name()):
-            views.append(v)
-    elif scope in ('open', 'o'):
-        for v in sublime.active_window().views():
-            if not ignore_path(v.file_name()):
-                views.append(v)
-    else:
-        for f in sublime.active_window().folders():
-            for path, subdirs, files in os.walk(f):
-                for name in files:
-                    p = os.path.join(path, name)
-                    if not ignore_path(p):
-                        views.append(p)
-    return views
-
-
-def extract_comments_from_view(view):
-    """Extract all TODO-like comments from the given view.
-    """
-    matches = []
-    components = []
-    found = view.find_all(EXTRACT_RE, 0, '\\1:\\2:\\3', components)
-    captures = [m.split(':') for m in components]
-    for i, region in enumerate(found):
-        matches.append({
-            'position': view.rowcol(region.begin()),
-            'category': captures[i][0],
-            'assignee': captures[i][1] or '',
-            'message': format_message(captures[i][2])
-        })
-    return matches
 
 
 def ignore_path(path):
@@ -113,40 +66,74 @@ def ignore_path(path):
     return False
 
 
-def extract_comments_from_buffer(path):
+def aggregate_views(scope):
+    """Find all of the views we should search.
+
+    Args:
+        scope (str): The scope of our search. Accepted values are '(f)ile' (the
+        view being edited), '(o)pen' (all open views), or '(a)ll' (all files
+        in the current window).
+
+    Returns:
+        [sublime.View|str]: A list of View objects (when available) and file
+        paths.
+    """
+    views = []
+    if scope in ('file', 'f'):
+        v = sublime.active_window().active_view().file_name()
+        if not ignore_path(v):
+            views.append(v)
+    elif scope in ('open', 'o'):
+        for v in sublime.active_window().views():
+            name = v.file_name()
+            if not ignore_path(name):
+                views.append(name)
+    else:
+        for f in sublime.active_window().folders():
+            for path, subdirs, files in os.walk(f):
+                for name in files:
+                    p = os.path.join(path, name)
+                    if not ignore_path(p):
+                        views.append(p)
+    return views
+
+
+def extract_comments_from_buffer(path, categories, assignees):
     """Extract all TODO-like comments from the given file.
     """
     matches = []
-    pat = re.compile(EXTRACT_RE)
     try:
         with open(path) as buf:
             for i, line in enumerate(buf.readlines()):
-                m = pat.search(line)
+                m = EXTRACT_RE.search(line)
                 if m:
-                    matches.append({
-                        'position': (i, m.start(0)),
-                        'category': m.group(1),
-                        'assignee': m.group(2) or '',
-                        'message': format_message(m.group(3))
-                    })
+                    c = '*' in categories or m.group(1) in categories
+                    a = '*' in assignees or m.group(2) in assignees
+                    if c and a:
+                        matches.append({
+                            'position': (i, m.start(0)),
+                            'category': m.group(1),
+                            'assignee': m.group(2),
+                            'message': format_message(m.group(3))
+                        })
     except UnicodeDecodeError:
         pass
     return matches
 
 
-def extract_comments(views):
+def extract_comments(query):
     """Extract all TODO-like comments from the given sources.
     """
     comments = {}
-    for v in views:
-        if isinstance(v, sublime.View):
-            found = extract_comments_from_view(v)
-            if found:
-                comments[v.file_name()] = found
-        else:
-            found = extract_comments_from_buffer(v)
-            if found:
-                comments[v] = found
+    parsed = parse_query(query)
+    if parsed == []:
+        return comments
+
+    scope, categories, assignees = parsed
+    for v in aggregate_views(scope):
+        found = extract_comments_from_buffer(v, categories, assignees)
+        if found:
+            comments[v] = found
     return comments
 
 
@@ -162,26 +149,8 @@ class TodoSearchCommand(sublime_plugin.WindowCommand):
     def show_results(self, query):
         """Show the results in either a Quick Panel.
         """
-        parsed = parse_query(query)
-        if parsed == []:
-            return
-
-        scope, categories, assignees = parsed
-        comments_by_view = extract_comments(aggregate_views(scope))
-
-        filtered = {}
-        for view, comments in comments_by_view.items():
-            matches = []
-            for c in comments:
-                if (
-                    (c['category'] in categories or '*' in categories) and
-                    (c['assignee'] in assignees or '*' in assignees)
-                ):
-                    matches.append(c)
-            filtered[view] = matches
-
         sublime.active_window().run_command(
-            'todo_quick_panel', {'found': filtered})
+            'todo_quick_panel', {'found': extract_comments(query)})
 
 
 class TodoQuickPanelCommand(sublime_plugin.WindowCommand):
@@ -194,14 +163,13 @@ class TodoQuickPanelCommand(sublime_plugin.WindowCommand):
         """
         items = []
         for path, comments in found.items():
-            display_path = path.lstrip(os.path.expanduser('~'))
             for c in comments:
                 self.positions.append((path, c['position']))
                 if c['assignee']:
                     heading = '{0}({1})'.format(c['category'], c['assignee'])
                 else:
                     heading = c['category']
-                items.append([heading, c['message'], display_path])
+                items.append([heading, c['message'], os.path.basename(path)])
 
         if items:
             self.window.show_quick_panel(items, self.navigate)
