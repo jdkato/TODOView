@@ -1,21 +1,28 @@
 import os
 import re
 
+import jinja2
+import mdpopups
+
 import sublime
 import sublime_plugin
 
 TEMPLATE = r'\b({0})(?:\((.+)\))?: (.+)$'
 EXTRACT_RE = None
 PREFS = None
+CSS = None
+HTML = None
 
 
 def plugin_loaded():
     """Initialize the extraction regexp.
     """
-    global EXTRACT_RE, PREFS
+    global EXTRACT_RE, PREFS, CSS, HTML
     # TODO: respect updates to settings
     settings = sublime.load_settings('TODOView.sublime-settings')
     PREFS = sublime.load_settings('Preferences.sublime-settings')
+    CSS = sublime.load_resource('Packages/TODOView/resources/mini-ui.css')
+    HTML = sublime.load_resource('Packages/TODOView/resources/TODOView.html')
     EXTRACT_RE = TEMPLATE.format('|'.join(settings.get('targets', [])))
 
 
@@ -23,21 +30,29 @@ def parse_query(query):
     """Parse a search query and return its individual parts.
 
     Args:
-        query (str): A query in the form 'scope:TODO,...:assignee,...:sort_by'.
+        query (str): A query in the form 'scope:TODO,...:assignee,...'.
 
     Returns:
         [str]: The parsed sections of the query.
 
     Examples:
-        >>> parse_query('file:TODO:*:*')
-        ['file', ['TODO'], ['*'], '*']
+        >>> parse_query('file:TODO:*')
+        ['file', ['TODO'], ['*']]
     """
-    if not query.count(':') == 3:
+    if not query.count(':') == 2:
         return []
     parts = query.split(':')
     categories = parts[1].split(',')
     assignees = parts[2].split(',')
-    return [parts[0], categories, assignees, parts[3]]
+    return [parts[0], categories, assignees]
+
+
+def format_message(msg):
+    """Format the given message.
+    """
+    if not any(msg.endswith(c) for c in ('.', '?', '!')) and len(msg) > 30:
+        msg = msg + ' ...'
+    return msg
 
 
 def aggregate_views(scope):
@@ -82,8 +97,8 @@ def extract_comments_from_view(view):
         matches.append({
             'position': view.rowcol(region.begin()),
             'category': captures[i][0],
-            'assignee': captures[i][1],
-            'message': captures[i][2]
+            'assignee': captures[i][1] or '',
+            'message': format_message(captures[i][2])
         })
     return matches
 
@@ -115,8 +130,8 @@ def extract_comments_from_buffer(path):
                     matches.append({
                         'position': (i, m.start(0)),
                         'category': m.group(1),
-                        'assignee': m.group(2),
-                        'message': m.group(3)
+                        'assignee': m.group(2) or '',
+                        'message': format_message(m.group(3))
                     })
     except UnicodeDecodeError:
         pass
@@ -129,9 +144,13 @@ def extract_comments(views):
     comments = {}
     for v in views:
         if isinstance(v, sublime.View):
-            comments[v.file_name()] = extract_comments_from_view(v)
+            found = extract_comments_from_view(v)
+            if found:
+                comments[v.file_name()] = found
         else:
-            comments[v] = extract_comments_from_buffer(v)
+            found = extract_comments_from_buffer(v)
+            if found:
+                comments[v] = found
     return comments
 
 
@@ -147,11 +166,12 @@ class TodoSearchCommand(sublime_plugin.WindowCommand):
     def show_results(self, query):
         """Show the results in either a Quick Panel or a Phantom.
         """
+        settings = sublime.load_settings('TODOView.sublime-settings')
         parsed = parse_query(query)
         if parsed == []:
             return
 
-        scope, categories, assignees, sort_by = parsed
+        scope, categories, assignees = parsed
         comments_by_view = extract_comments(aggregate_views(scope))
 
         filtered = {}
@@ -163,14 +183,14 @@ class TodoSearchCommand(sublime_plugin.WindowCommand):
                     (c['assignee'] in assignees or '*' in assignees)
                 ):
                     matches.append(c)
-
             filtered[view] = matches
 
-        if sort_by in ('file', 'type', 'assignee'):
-            filtered = sorted(filtered, key=lambda k: k[sort_by])
-
-        sublime.active_window().run_command(
-            'todo_quick_panel', {'found': filtered})
+        if settings.get('output') == 'QuickPanel':
+            sublime.active_window().run_command(
+                'todo_quick_panel', {'found': filtered})
+        else:
+            sublime.active_window().run_command(
+                'todo_phantom', {'found': filtered})
 
 
 class TodoQuickPanelCommand(sublime_plugin.WindowCommand):
@@ -206,3 +226,33 @@ class TodoQuickPanelCommand(sublime_plugin.WindowCommand):
         f, p = self.positions[idx]
         self.window.open_file(
             '{0}:{1}:{2}'.format(f, p[0] + 1, p[1]), sublime.ENCODED_POSITION)
+
+
+class TodoPhantomCommand(sublime_plugin.WindowCommand):
+    """Show relevant TODOs in a Phantom.
+    """
+    positions = []
+
+    def run(self, found):
+        """Extract the comments and populate and Quick Panel with the results.
+        """
+        content = jinja2.Template(HTML).render(comments=found)
+
+        view = self.window.new_file()
+        view.set_name('TODOView - Search Results')
+        view.settings().set('gutter', False)
+        view.settings().set('word_wrap', False)
+
+        mdpopups.add_phantom(
+            view,
+            'TODOs',
+            sublime.Region(0),
+            content,
+            sublime.LAYOUT_INLINE,
+            wrapper_class='todoview',
+            md=False,
+            css=CSS
+        )
+
+        view.set_read_only(True)
+        view.set_scratch(True)

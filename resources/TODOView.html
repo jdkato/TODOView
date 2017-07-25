@@ -1,0 +1,17 @@
+<ul class="list-group">
+    {% for path, values in comments.items() %}
+        {% for c in values %}
+            <li class="list-item">
+                <a href="goto">
+                    {{ c['message'] }}
+                    <span class="badge badge-small badge-info">
+                        type: {{ c['category'] }}
+                    </span>&nbsp;
+                    <span class="badge badge-small badge-info">
+                        assignee: {{ c['assignee']|default('none', true) }}
+                    </span>
+                </a>
+            </li>
+        {% endfor %}
+    {% endfor %}
+</ul>

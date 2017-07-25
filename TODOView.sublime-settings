@@ -3,5 +3,7 @@
     "targets": [
         "TODO", "FIXME", "CHANGED", "XXX", "IDEA", "HACK", "NOTE", "REVIEW",
         "NB", "BUG", "QUESTION", "COMBAK", "TEMP"
-    ]
+    ],
+    // QuickPanel or Phantom
+    "output": "Phantom"
 }
