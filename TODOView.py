@@ -4,23 +4,6 @@ import re
 import sublime
 import sublime_plugin
 
-
-TARGETS = [
-    'TODO',
-    'FIXME',
-    'CHANGED',
-    'XXX',
-    'IDEA',
-    'HACK',
-    'NOTE',
-    'REVIEW',
-    'NB',
-    'BUG',
-    'QUESTION',
-    'COMBAK',
-    'TEMP'
-]
-
 TEMPLATE = r'\b({0})(?:\((.+)\))?: (.+)$'
 EXTRACT_RE = None
 
@@ -29,8 +12,9 @@ def plugin_loaded():
     """Initialize the extraction regexp.
     """
     global EXTRACT_RE
-    # TODO: If possible, replace `TARGETS` with a user-provided list of words.
-    EXTRACT_RE = TEMPLATE.format('|'.join(TARGETS))
+    # TODO: respect updates to settings
+    settings = sublime.load_settings('TODOView.sublime-settings')
+    EXTRACT_RE = TEMPLATE.format('|'.join(settings.get('targets', [])))
 
 
 def parse_query(query):
@@ -104,10 +88,15 @@ def extract_comments_from_view(view):
 
 def ignore_path(path):
     """Determine if we should ignore the given path.
-
-    TODO: check settings
     """
-    return path.endswith('.DS_Store')
+    settings = sublime.load_settings('Preferences.sublime-settings')
+    binary = settings.get('binary_file_patterns', [])
+    files = settings.get('file_exclude_patterns', [])
+    folders = settings.get('folder_exclude_patterns', [])
+    for pat in folders + binary + files:
+        if re.search(pat, path):
+            return True
+    return False
 
 
 def extract_comments_from_buffer(path):
@@ -128,7 +117,6 @@ def extract_comments_from_buffer(path):
                     })
     except UnicodeDecodeError:
         pass
-    print(matches)
     return matches
 
 
