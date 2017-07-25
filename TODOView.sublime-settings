@@ -1,0 +1,7 @@
+{
+    // The words to look for:
+    "targets": [
+        "TODO", "FIXME", "CHANGED", "XXX", "IDEA", "HACK", "NOTE", "REVIEW",
+        "NB", "BUG", "QUESTION", "COMBAK", "TEMP"
+    ]
+}

@@ -6,14 +6,16 @@ import sublime_plugin
 
 TEMPLATE = r'\b({0})(?:\((.+)\))?: (.+)$'
 EXTRACT_RE = None
+PREFS = None
 
 
 def plugin_loaded():
     """Initialize the extraction regexp.
     """
-    global EXTRACT_RE
+    global EXTRACT_RE, PREFS
     # TODO: respect updates to settings
     settings = sublime.load_settings('TODOView.sublime-settings')
+    PREFS = sublime.load_settings('Preferences.sublime-settings')
     EXTRACT_RE = TEMPLATE.format('|'.join(settings.get('targets', [])))
 
 
@@ -89,12 +91,13 @@ def extract_comments_from_view(view):
 def ignore_path(path):
     """Determine if we should ignore the given path.
     """
-    settings = sublime.load_settings('Preferences.sublime-settings')
-    binary = settings.get('binary_file_patterns', [])
-    files = settings.get('file_exclude_patterns', [])
-    folders = settings.get('folder_exclude_patterns', [])
+    binary = PREFS.get('binary_file_patterns', [])
+    files = PREFS.get('file_exclude_patterns', [])
+    folders = PREFS.get('folder_exclude_patterns', [])
     for pat in folders + binary + files:
-        if re.search(pat, path):
+        if '*' in path and re.search(pat, path):
+            return True
+        elif pat in path:
             return True
     return False
 
