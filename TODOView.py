@@ -10,19 +10,15 @@ import sublime_plugin
 TEMPLATE = r'\b({0})(?:\((.+)\))?: (.+)$'
 EXTRACT_RE = None
 PREFS = None
-CSS = None
-HTML = None
 
 
 def plugin_loaded():
     """Initialize the extraction regexp.
     """
-    global EXTRACT_RE, PREFS, CSS, HTML
+    global EXTRACT_RE, PREFS
     # TODO: respect updates to settings
     settings = sublime.load_settings('TODOView.sublime-settings')
     PREFS = sublime.load_settings('Preferences.sublime-settings')
-    CSS = sublime.load_resource('Packages/TODOView/resources/mini-ui.css')
-    HTML = sublime.load_resource('Packages/TODOView/resources/TODOView.html')
     EXTRACT_RE = TEMPLATE.format('|'.join(settings.get('targets', [])))
 
 
@@ -164,9 +160,8 @@ class TodoSearchCommand(sublime_plugin.WindowCommand):
             'Enter a query string: ', '', self.show_results, None, None)
 
     def show_results(self, query):
-        """Show the results in either a Quick Panel or a Phantom.
+        """Show the results in either a Quick Panel.
         """
-        settings = sublime.load_settings('TODOView.sublime-settings')
         parsed = parse_query(query)
         if parsed == []:
             return
@@ -185,12 +180,8 @@ class TodoSearchCommand(sublime_plugin.WindowCommand):
                     matches.append(c)
             filtered[view] = matches
 
-        if settings.get('output') == 'QuickPanel':
-            sublime.active_window().run_command(
-                'todo_quick_panel', {'found': filtered})
-        else:
-            sublime.active_window().run_command(
-                'todo_phantom', {'found': filtered})
+        sublime.active_window().run_command(
+            'todo_quick_panel', {'found': filtered})
 
 
 class TodoQuickPanelCommand(sublime_plugin.WindowCommand):
@@ -226,33 +217,3 @@ class TodoQuickPanelCommand(sublime_plugin.WindowCommand):
         f, p = self.positions[idx]
         self.window.open_file(
             '{0}:{1}:{2}'.format(f, p[0] + 1, p[1]), sublime.ENCODED_POSITION)
-
-
-class TodoPhantomCommand(sublime_plugin.WindowCommand):
-    """Show relevant TODOs in a Phantom.
-    """
-    positions = []
-
-    def run(self, found):
-        """Extract the comments and populate and Quick Panel with the results.
-        """
-        content = jinja2.Template(HTML).render(comments=found)
-
-        view = self.window.new_file()
-        view.set_name('TODOView - Search Results')
-        view.settings().set('gutter', False)
-        view.settings().set('word_wrap', False)
-
-        mdpopups.add_phantom(
-            view,
-            'TODOs',
-            sublime.Region(0),
-            content,
-            sublime.LAYOUT_INLINE,
-            wrapper_class='todoview',
-            md=False,
-            css=CSS
-        )
-
-        view.set_read_only(True)
-        view.set_scratch(True)

@@ -1,9 +1,7 @@
 {
-    // The words to look for:
+    // The case-sensitive words to look for:
     "targets": [
         "TODO", "FIXME", "CHANGED", "XXX", "IDEA", "HACK", "NOTE", "REVIEW",
         "NB", "BUG", "QUESTION", "COMBAK", "TEMP"
-    ],
-    // QuickPanel or Phantom
-    "output": "Phantom"
+    ]
 }
