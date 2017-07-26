@@ -17,7 +17,7 @@ where
 - `type(s)` is a comma-separated list of annotations to be included in the search (or "\*" to search for all `targets`, as listed in the [settings file](https://github.com/jdkato/TODOView/blob/master/TODOView.sublime-settings)); and
 - `assignee(s)` is a comma-separated list of [Google-style](https://google.github.io/styleguide/pyguide.html#TODO_Comments) identifiers (or "\*" to include all identifiers in the search).
 
-For example, if we wanted to search for all TODOs or NOTEs assigned to `jdkato` in our currently open files, we'd use:
+If we wanted to search for all TODOs or NOTEs assigned to `jdkato` in our currently open files, we'd use:
 
 ```text
 open:TODO,NOTE:jdkato
